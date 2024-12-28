@@ -1,0 +1,362 @@
+---
+title:  "Project 2: Description Using Models"
+subtitle: "How Many Hours do You Want to Work? "
+date: today
+author: "Datasci 203 Team: Yi, Wang, Wu, Yarramreddy "
+abstract: This report aims to use linear regression modeling to describe how one's occupation, gender, age, household type with or without children under 18, and educational level impacts hours worked per week. The analysis uses a 2023 United States Census Bureau survey from California. Results show that these factors can help describe the amount of hours you work a week.
+
+toc: false
+colorlinks: true
+cap-locaiton: bottom
+number-sections: true
+header-includes:
+   - \usepackage{dcolumn}
+execute:
+  echo: false
+  warning: false
+  message: false
+bibliography: references.bib
+citeproc: true
+biblio-title: References
+link-citations: true
+format:
+  pdf:
+    documentclass: scrreprt
+---
+
+```{r setup, include = FALSE}
+#install.packages("ggrastr")
+
+library(ggplot2)
+library(dplyr)
+library(car)
+library(stargazer)
+library(patchwork)
+library(ggrastr)
+
+# This is needed because when generating the pdfs, the plots have tons of points and makes the
+# pdf size very large, so first rasterize the plot and then create the pdf so it make the pdf size smaller.
+# increase the dpi to increase the quality
+points_dpi <- 20
+```
+
+```{r, theme_setup}
+theme_set(theme_minimal())
+```
+
+```{r, read_data, echo=FALSE}
+data <- read.csv("cleaned_data.csv")
+```
+
+```{r, group_data, echo=FALSE}
+# Convert `education_level` and `gender` to categorical data
+# Convert `occupation`, `household`, `education_level` and `gender` to categorical data
+data <- subset(data, age >= 18 & age < 67)
+data <- subset(data, !(occupation %in% c(9920)))
+
+
+
+data <- data %>%
+  mutate(
+    household = as.factor(household),
+    gender = as.factor(gender),
+    education_level = case_when(
+      education_level >= 1 & education_level <= 19 ~ "HS",
+      education_level == 20 ~ "AS",
+      education_level == 21 ~ "BD",
+      education_level %in% c(22, 23)~ "MD",
+      education_level == 24 ~ "PHD",
+      TRUE ~ NA_character_  # Handle unexpected values
+    ),
+    occupation = case_when(
+      occupation >= 10 & occupation <= 440 ~ "MRG",
+      occupation >= 500 & occupation <= 750 ~ "BUS",
+      occupation >= 800 & occupation <= 960 ~ "FIN",
+      occupation >= 1005 & occupation <= 1240 ~ "CMM",
+      occupation >= 1305 & occupation <= 1560 ~ "ENG",
+      occupation >= 1600 & occupation <= 1980 ~ "SCI",
+      occupation >= 2001 & occupation <= 2060 ~ "CMS",
+      occupation >= 2100 & occupation <= 2180 ~ "LGL",
+      occupation >= 2205 & occupation <= 2555 ~ "EDU",
+      occupation >= 2600 & occupation <= 2920 ~ "ENT",
+      occupation >= 3000 & occupation <= 3550 ~ "MED",
+      occupation >= 3601 & occupation <= 3655 ~ "HLS",
+      occupation >= 3700 & occupation <= 3960 ~ "PRT",
+      occupation >= 4000 & occupation <= 4160 ~ "EAT",
+      occupation >= 4200 & occupation <= 4255 ~ "CLN",
+      occupation >= 4330 & occupation <= 4655 ~ "PRS",
+      occupation >= 4700 & occupation <= 4965 ~ "SAL",
+      occupation >= 5000 & occupation <= 5940 ~ "OFF",
+      occupation >= 6005 & occupation <= 6130 ~ "FFF",
+      occupation >= 6200 & occupation <= 6765 ~ "CON",
+      occupation >= 6800 & occupation <= 6950 ~ "EXT",
+      occupation >= 7000 & occupation <= 7640 ~ "RPR",
+      occupation >= 7700 & occupation <= 8990 ~ "PRD",
+      occupation >= 9005 & occupation <= 9760 ~ "TRN",
+      occupation >= 9800 & occupation <= 9830 ~ "MIL",
+      occupation == 9920 ~ "Unemployed",
+      TRUE ~ NA_character_ # Handle unexpected values
+
+    ),
+    # Reclassify household
+    household_type = case_when(
+      household %in% c(1, 3) ~ "CWC",
+      household %in% c(2, 4) ~ "CWOC",
+      household %in% c(5, 7, 8, 9, 11, 12) ~ "SWOC",
+      household %in% c(6,10) ~ "SWC",
+      TRUE ~ "Other"
+    )
+  )
+data$occupation <- factor(data$occupation)
+data$education_level <- factor(data$education_level)
+data$household_type <- factor(data$household_type)
+
+#Relabel some of our X Variables
+data$gender <- factor(data$gender,
+                          levels = c("1", "2"),
+                          labels = c("Male", "Female"))
+```
+
+```{r, models, echo=FALSE}
+model1 <- lm(hours_worked_weekly ~ occupation, data = data)
+model2 <- lm(hours_worked_weekly ~ occupation + education_level + household_type + age + gender, data = data)
+```
+
+# Paper
+
+## Introduction
+
+For many people, one of the most important factors in choosing a career is work-life balance. According to the human resources software provider Cipher, 67% of respondents ranked work-life balance as a top consideration when selecting a job, closely followed by pay, benefits, and job security. A major aspect of work-life balance is the number of hours spent working each week. Some careers demand long hours and overtime, while others offer more predictable 40-hour weeks, or even fewer. This raises an important question:
+
+_How does the occupational field impact the number of working hours per week?_
+
+Answering this question could provide valuable insights for high school graduates and college students embarking on their careers, helping them choose paths that align with their desired work-life balance. Additionally, it could guide those already in the workforce who are considering a career change, and assist employers in understanding how to improve their employees' work-life balance.
+
+
+## Description of Data Source
+
+The dataset being used is the Public Use Microdata Sample from the American Community Survey (ACS). The ACS Public Use Microdata Sample (PUMS) is collected by the United State Census Bureau. The population is the United State of America with approximately 1% of the population being sampled. The sampling technique used is stratified sampling where each geographic region is designed to have roughly the same population. The participants will be given the American Community Survey (ACS). Each row in the dataset represents a single person. All ACS responses are confidential and many variables have been added/modified to protect the anonymity and confidentiality of the participants. We chose to analyze survey response from 2023 California as we assumed that California would represent most, if not all of the occupations and industries.
+
+## Data Wrangling
+
+
+For data wrangling, we used the dplyr package to transform the raw data to data for analysis. We had two raw data files: psam_p_CA.csv (person-level data) and psam_h_CA.csv (househoad-level data). The datasets were joined using an inner join on the SERIALNO column where only matched records were kept. From the merged data, columns WKHP, OCCP, SCHL, HHT2, AGEP, SEX are kept to use as independent and dependent variables for our regression models and renamed to more human-readable names while the rows with missing values in any of these columns were removed to ensure data completeness and avoid bias in the analysis. The cleaned dataset was exported to cleaned_data.csv for analysis. @fig-dist shows a histogram of the y independent variable: Hours Worked Weekly. Our sample data had initially 191K rows of data. After filtering some of the variables as we will mention later on, we ended up with 183,391 rows of data that we used for our regression modeling.
+
+
+## Operationalization
+
+Hour worked weekly is a metric variable that ranges from 1 to 99. The histogram for this variable shows no significant skewness, making it a suitable dependent variable for modeling.
+
+Occupation was converted from a numeric variable (ranging from 0020 to 9920) into a categorical variable to make occupation categories more interpretable. The categories include: "MRG" for Management, "BUS" for Business and Accounting, "FIN" for Finance, "CMM" for Computer, "ENG" for Engineering, "SCI" for Science, "CMS" for Social Services, "LGL" for Legal, "EDU" for Education, "ENT" for Entertainment, "MED" for Medical, "HLS" for Health and Social Services, "PRT" for Public Safety, "EAT" for Food Services, "CLN" for Facilities, "PRS" for Personal Care, "SAL" for Retail and Sales, "OFF" for Office, "FFF" for Agriculture, "CON" for Construction, "EXT" for Extraction and Mining, "RPR" for Repair, "PRD" for Food or Material Production, "TRN" for Transportation, and "MIL" for Military.
+
+Education level was converted from an ordinal variable (ranging from 1 to 24) into a categorical variable to make education levels more intuitive. The categories include: "HS" for High School or below, "AS" for Associate's or Some College, "BD" for Bachelor's degree, "MD" for Master's or other advanced degrees past a Bachelor's, and "PHD" for Doctorate.
+
+Household was converted from a numeric variable into a categorical variable to represent household types. The categories include: "CWC" for Cohabiting or Married with Children under 18, "CWOC" for Cohabiting or Married without Children under 18, "SWOC" for Single without Children under 18, and "SWC" for Single with Children under 18.
+
+Gender is a categorical variable with two categories: male and female.
+
+Age is a continuous variable, ranging from 18 to 67 years.
+
+## Model Specification
+
+For our first model, we explore a single-variable linear regression model. We set our independent variable as occupation (treated as a categorical variable), and our dependent variable as hours worked per week (treated as a continuous variable).
+
+For our second model, we explore a multi-variable linear regression model. We set our independent variables as occupation (categorical), education (categorical), household type (categorical), gender (categorical), and age (continuous), and our dependent variable as hours worked per week (continuous).
+
+## Model Assumptions
+
+**Model 1**: The IID assumption is satisfied as each observation represents an individual or household sampled independently from the population using the PUMS's random sampling methodology, and all observations are drawn from the same population distribution for the survey year. Since there is only one independent variable, collinearity is not a concern. The Residuals vs Occupation plot (@fig-plots, Plot ?) shows no clear pattern, indicating a linear relationship between occupation and weekly work hours. The Residuals vs Fitted Values plot shows no funnel-shaped patterns, meaning the variance of the residuals is relatively constant across different levels of the fitted values indicating homoscedasticity (@fig-plots, Plot A). Although the Q-Q plot is left-skewed, because we have a large sample size, the normal distribution of errors is still satisfied due to the Central Limit Theorem (@fig-plots, Plot C).
+
+**Model 2**: The IID assumption is satisfied for the same reasoning as Model 1. We used the variance inflation factor (@sec-vif), which measures the strength of correlation between predictor variables, to detect multicollinearity in this model. The generalized variance inflation factor for all predictors are well below the commonly accepted threshold of 5, indicating no significant multicollinearity issues. The Residuals vs Occupation plot shows no clear patterns, indicating a linear relationship between occupation and weekly work hours (@fig-plots, Plot E). The Residuals vs Education Level plot shows no clear patterns, indicating a linear relationship between education level and weekly work hours (@fig-plots, Plot H). The Residuals vs Household plot shows no clear patterns, indicating a linear relationship between household type and weekly work hours (@fig-plots, Plot G). The Residuals vs Age plot shows no clear patterns, indicating a  linear relationship between age and weekly work hours (@fig-plots, Plot F). The Residuals vs Gender plot shows no clear patterns, indicating a linear relationship between gender and weekly work hours (@fig-plots, Plot I). The Residuals vs Fitted Values plot (@fig-plots, Plot B) shows no funnel-shaped patterns, meaning the variance of the residuals is relatively constant across different levels of the fitted values, indicating homoscedasticity. We see some deviation from the qqline (@fig-plots, Plot D) likely due to a large amount of outliers in our data (not working/inflation of working hours). We do however have a very large sample size so using the Central Limit Theorem we cautiously satisfy this assumption.
+
+## Model Results and Interpretation
+
+Our modeling results show that while we have P Value less than .05 showing statistical significance, our adjusted R-Squared Value of .07 for Model 1 and .096 for Model 2 means that we really don't have any practical significance. Our model using educational levels, occupational industry, household type, and age only describes 9% of the variability in the data, which is low. While the relationship is statistically significant, it may not be practically meaningful. However, it can still provide us with some meaningful insights.
+
+
+In Model2, the coefficient is 37.2 hours, and the dummy variables (indicator variables) is a male, cohabiting or married with children under 18, with an associate degree or some amount of college, and in the Business and Accounting occupational group.
+
+In a hypothetical example going off our baseline model, you will work 1.5 more hours if you have a Bachelor's, .5 hours less if you are without child and still married or cohabiting, and 1.5 more hours if you are working in Public Safety.
+
+
+Our model suggests that most occupation do tend to work around 40 hours a week with certain exceptions. Our model also tells us that males tend to work more hours than females in general. Also that you tend to work less hours without a child and more hours with a child for both men and women.
+
+Our model also describes that each level of educational milestone also leads to an increase of an hour worked a week at each step. Next steps in our model refinement could be re-examining how we group different occupations, how age and different stages in life affects how many hours you work, and include additional variables like work/life balance satisfaction metrics. We can also look to remove weekly hours worked value from respondents are working limited hours due to health reasons.
+
+
+
+# Appendix
+
+1. **A Link to your Data Source.**
+https://data.census.gov/mdat/#/search?ds=ACSPUMS1Y2023
+
+2. **A List of Model Specifications you Tried.**
+Initial Attempts:
+We began with a single-variable linear regression using educational level as the predictor. However, this yielded a very low adjusted R-squared value, leading us to switch to occupation as the main variable.
+
+Granular Grouping of Occupations:
+Initially, we grouped occupations at a more granular level, but this approach did not significantly improve the model's adjusted R-squared value. It also posed challenges by reducing the sample size and risking a narrower scope for our research question.
+
+Incorporating Industries, Household Types, Gender, and age.
+We explored various combinations of occupation, household type, and industry variables under the assumption that job type and household composition significantly influence hours worked. We tested different approaches for including or excluding gender and experimented with categorizing household types into various groups.
+
+Our best results were obtained when we: Retained gender as a variable. Grouped household types into four categories: single (with or without child) and cohabiting (with or without child). Restricted the age range to typical working ages (18–67) and excluded respondents who reported not being in the workforce.
+
+Results and Insights
+These adjustments increased the model's adjusted R-squared value from approximately 0.08 to 0.096.
+Although we considered removing gender, it was retained because some household variables lacked sufficient gender-specific information.
+
+## Model Summaries {#sec-modelsummary}
+```{r, model1_summary, echo=FALSE, results='markup'}
+stargazer(model1, model2, type="text")
+```
+
+## Variance Inflation Factor {#sec-vif}
+```{r, collinearity_plot, echo=FALSE}
+vif(model2)
+```
+
+## Figures
+
+```{r hist_plot, echo=FALSE, results='asis'}
+#| fig-cap: "Large Sample Model showing normal distribution clustered at 40 hours."
+#| fig-height: 2
+#| fig-pos: h
+#| label: fig-dist
+
+
+# Histogram: Distribution of Hours Worked Weekly
+ggplot(data, aes(x = hours_worked_weekly)) +
+  geom_histogram(binwidth = 5, fill = "blue", color = "black", alpha = 0.7) +
+  labs(
+    title = "Distribution of Hours Worked Weekly",
+    x = "Hours Worked Weekly",
+    y = "Frequency"
+  ) +
+  theme_minimal()
+
+```
+
+
+```{r modeling, echo=FALSE}
+#| fig-cap: "Actual vs Predicted for Model2."
+#| fig-height: 2
+#| fig-pos: h
+#| label: fig-dist2
+#|
+fitted2 <- model2$fitted.values
+actual_values <- data$hours_worked_weekly
+
+# Create a data frame for plotting
+plot_data <- data.frame(
+  Predicted = fitted2,
+  Actual = actual_values
+)
+
+# Plot actual vs predicted values
+plot1 <- ggplot(plot_data, aes(x = Predicted, y = Actual)) +
+  geom_point(alpha = 0.6, color = "blue") +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed", color = "red") +
+  labs(
+    title = "Predicted vs Actual Values",
+    x = "Predicted Values",
+    y = "Actual Values"
+  ) +
+  theme_minimal()
+rasterize(plot1, layers="Point", dpi=points_dpi)
+```
+
+```{r, combined_plots, echo=FALSE}
+#| fig-cap: Graphs of Assumptions
+#| fig-height: 15
+#| fig-width: 15
+#| fig-pos: h
+#| label: fig-plots
+
+# Residuals vs Fitted (Model 1 and Model 2)
+fitted1 <- model1$fitted.values
+residuals1 <- model1$residuals
+fitted2 <- model2$fitted.values
+residuals2 <- model2$residuals
+
+plot_data1 <- data.frame(Fitted = fitted1, Residuals = residuals1)
+plot_data2 <- data.frame(Fitted = fitted2, Residuals = residuals2)
+
+# Residuals vs Fitted - Model 1
+residuals1_model <- ggplot(plot_data1, aes(x = Fitted, y = Residuals)) +
+  geom_point(color = "blue", alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(
+    title = "Residuals vs Fitted Values - Model 1",
+    x = "Fitted Values (Weekly Hours)",
+    y = "Residuals"
+  ) +
+  theme_minimal()
+residuals1_model <- rasterize(residuals1_model, layers="Point", dpi=points_dpi)
+
+
+# Residuals vs Fitted - Model 2
+residuals2_model <- ggplot(plot_data2, aes(x = Fitted, y = Residuals)) +
+  geom_point(color = "blue", alpha = 0.6) +
+  geom_smooth(method = "lm", se = FALSE, color = "red") +
+  labs(
+    title = "Residuals vs Fitted Values - Model 2",
+    x = "Fitted Values (Weekly Hours)",
+    y = "Residuals"
+  ) +
+  theme_minimal()
+residuals2_model <- rasterize(residuals2_model, layers="Point", dpi=points_dpi)
+
+# model 1
+qqplot1 <- ggplot(data.frame(y=residuals1), aes(sample=y)) +
+  stat_qq() +
+  stat_qq_line()
+qqplot1 <- rasterize(qqplot1, layers="Point", dpi=points_dpi)
+
+
+# model 2
+qqplot2 <- ggplot(data.frame(y=residuals2), aes(sample=y)) +
+  stat_qq() +
+  stat_qq_line()
+qqplot2 <- rasterize(qqplot2, layers="Point", dpi=points_dpi)
+
+# Function to Plot Residuals vs Categorical Variables
+plot_residuals <- function(independent_var, residuals, var_name) {
+  plot <- ggplot(data.frame(IndependentVar = independent_var, Residuals = residuals), aes(x = IndependentVar, y = Residuals)) +
+    geom_point(alpha = 0.5, color = "blue") +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "red", linewidth = 1) +
+    labs(
+      title = paste("Residuals vs", var_name),
+      x = var_name,
+      y = "Residuals"
+    ) +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, vjust = 0.5))
+  rasterize(plot, layers="Point", dpi=points_dpi)
+
+}
+
+
+# Residual Plots for Model 2
+residuals2_occupation <- plot_residuals(data$occupation, residuals2, "Occupation")
+residuals2_education <- plot_residuals(data$education_level, residuals2, "Education Level")
+residuals2_household <- plot_residuals(data$household_type, residuals2, "Household")
+residuals2_age <- plot_residuals(data$age, residuals2, "Age")
+residuals2_gender <- plot_residuals(data$gender, residuals2, "Gender")
+
+
+# Split plots into smaller grids
+group1 <- residuals1_model + residuals2_model
+group2 <- qqplot1 + qqplot2
+group3 <- residuals2_occupation + residuals2_age
+group4 <- residuals2_household + residuals2_education + residuals2_gender
+
+# Combine all groups into a grid with 2 plots per row
+combined_plot <-
+  (group1 / group2 / group3 / group4) +
+  plot_annotation(tag_levels = 'A')  # Continuous numbering
+
+# Display the combined plot
+combined_plot
+
+```
